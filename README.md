@@ -2,7 +2,15 @@
 
 ## Repository Overview
 
-Repository associated with the manuscript, "Learning Seismic Wavefield Structure from Regional Arrays with Self-Supervised Deep Learning" (in review).
+This repository provides the code and analysis workflow for building, training, and evaluating VASA (Virtual Array Synthesis Architecture). The project is centered on reconstructing missing seismic array channels from the remaining observed sensors using a convolutional-Transformer hybrid model.
+
+The repository includes:
+
+- catalog preparation and event selection
+- waveform database construction and preprocessing
+- model architecture visualization and training
+- FK-based physical validation of reconstructed wavefields
+- interpretability analyses of sensor importance
 
 ## Cardinal
 
@@ -13,13 +21,9 @@ The Cardinal software package must be installed prior to environment set up. Inf
 Navigate to directory and type:
 
  - conda env create -f deep_learning_env.yml
-
  - source activate deep_learning
-
  - pip install tensorflow==2.18.0 keras==3.8.0
-
  - conda install graphviz
-
  - pip install pydot dask cartopy networkx future pisces
 
 ## Notebooks
