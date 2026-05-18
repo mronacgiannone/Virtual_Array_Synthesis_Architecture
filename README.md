@@ -8,6 +8,19 @@ Repository associated with the manuscript, "Learning Seismic Wavefield Structure
 
 The Cardinal software package must be installed prior to environment set up. Information on installing Cardinal can be found here: https://github.com/sjarrowsmith/cardinal.git
 
+## Install and Activate
+
+Navigate to directory and type:
+
+ - conda env create -f deep_learning_env.yml
+
+ - source activate deep_learning
+
+ - pip install tensorflow==2.18.0 keras==3.8.0
+
+ - conda install graphviz
+
+ - pip install pydot dask cartopy networkx future pisces
 
 ## Notebooks
 
