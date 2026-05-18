@@ -1,4 +1,6 @@
-# Virtual_Array_Synthesis_Architecture (VASA)
+# Virtual Array Synthesis Architecture (VASA)
+
+## Repository Overview
 
 Repository associated with the manuscript, "Learning Seismic Wavefield Structure from Regional Arrays with Self-Supervised Deep Learning" (in review).
 
@@ -12,6 +14,8 @@ Repository associated with the manuscript, "Learning Seismic Wavefield Structure
   - Converts the compiled waveform database into the final model-ready dataset by filtering the waveforms, removing poorly reconstructed low-magnitude events, evaluating spatial coherency, and producing the train/test split and associated metadata used for VASA.
 - **3a_Visualize_VASA.ipynb**
   - Displays the full VASA architecture for inspection and documentation.
+- **3b_Train_VASA_v1.ipynb**
+  - Implements training of the initial VASA architecture using the finalized train/test split and provides an initial evaluation of model behavior, including validation tracking and qualitative reconstruction checks.
 
 ## Folders
 
