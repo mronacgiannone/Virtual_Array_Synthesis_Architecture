@@ -16,6 +16,8 @@ Repository associated with the manuscript, "Learning Seismic Wavefield Structure
   - Displays the full VASA architecture for inspection and documentation.
 - **3b_Train_VASA_v1.ipynb**
   - Implements training of the initial VASA architecture using the finalized train/test split and provides an initial evaluation of model behavior, including validation tracking and qualitative reconstruction checks.
+- **3c_Evaluate_VASA_v1.ipynb**
+  - Applies FK array processing to observed and reconstructed waveforms in order to evaluate whether VASA preserves the directional and kinematic structure of the seismic wavefield during sensor reconstruction.
 
 ## Folders
 
@@ -41,4 +43,6 @@ Repository associated with the manuscript, "Learning Seismic Wavefield Structure
     - **X_Test10.npy** (Zenodo): Preprocessed testing waveform array bandpass filtered 0.5 - 10 Hz fpr VASA model development. (Notebook 2)
     - **meta_train.pkl**: Pickled DataFrame containing the event metadata corresponding to the train split waveforms
     - **meta_test.pkl**: Pickled DataFrame containing the event metadata corresponding to the test split waveforms
+- **Models/**
+  - Stores the trained VASA model outputs used in this study, together with their corresponding training-history logs. Models are organized by input bandwidth (5 Hz and 10 Hz) and by training duration, with checkpoints retained for both 500-epoch and 1000-epoch runs.
 
