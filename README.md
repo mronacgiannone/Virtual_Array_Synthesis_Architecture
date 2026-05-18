@@ -10,6 +10,8 @@ Repository associated with the manuscript, "Learning Seismic Wavefield Structure
   - Performs waveform quality control and constructs the final event database used for VASA.
 - **2_Data_Preprocessing.ipynb**
   - Converts the compiled waveform database into the final model-ready dataset by filtering the waveforms, removing poorly reconstructed low-magnitude events, evaluating spatial coherency, and producing the train/test split and associated metadata used for VASA.
+- **3a_Visualize_VASA.ipynb**
+  - Displays the full VASA architecture for inspection and documentation.
 
 ## Folders
 
