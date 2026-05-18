@@ -43,6 +43,3 @@ Repository associated with the manuscript, "Learning Seismic Wavefield Structure
     - **X_Test10.npy** (Zenodo): Preprocessed testing waveform array bandpass filtered 0.5 - 10 Hz fpr VASA model development. (Notebook 2)
     - **meta_train.pkl**: Pickled DataFrame containing the event metadata corresponding to the train split waveforms
     - **meta_test.pkl**: Pickled DataFrame containing the event metadata corresponding to the test split waveforms
-- **Models/**
-  - Stores the trained VASA model outputs used in this study, together with their corresponding training-history logs. Models are organized by input bandwidth (5 Hz and 10 Hz) and by training duration, with checkpoints retained for both 500-epoch and 1000-epoch runs.
-
