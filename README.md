@@ -4,6 +4,11 @@
 
 Repository associated with the manuscript, "Learning Seismic Wavefield Structure from Regional Arrays with Self-Supervised Deep Learning" (in review).
 
+## Cardinal
+
+The Cardinal software package must be installed prior to environment set up. Information on installing Cardinal can be found here: https://github.com/sjarrowsmith/cardinal.git
+
+
 ## Notebooks
 
 - **1a_Prelim_Catalog_Analysis.ipynb**
