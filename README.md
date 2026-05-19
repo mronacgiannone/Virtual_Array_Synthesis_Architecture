@@ -61,7 +61,7 @@ Navigate to directory and type:
   - **Preprocessed/**
     - **X_Train5.npy** (Zenodo): Preprocessed training waveform array bandpass filtered 0.5 - 5 Hz fpr VASA model development. (Notebook 2)
     - **X_Test5.npy** (Zenodo): Preprocessed testing waveform array bandpass filtered 0.5 - 5 Hz fpr VASA model development. (Notebook 2)
-    - **X_Traing10.npy** (Zenodo): Preprocessed training waveform array bandpass filtered 0.5 - 10 Hz fpr VASA model development. (Notebook 2)
+    - **X_Train10.npy** (Zenodo): Preprocessed training waveform array bandpass filtered 0.5 - 10 Hz fpr VASA model development. (Notebook 2)
     - **X_Test10.npy** (Zenodo): Preprocessed testing waveform array bandpass filtered 0.5 - 10 Hz fpr VASA model development. (Notebook 2)
     - **meta_train.pkl**: Pickled DataFrame containing the event metadata corresponding to the train split waveforms
     - **meta_test.pkl**: Pickled DataFrame containing the event metadata corresponding to the test split waveforms
