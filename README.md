@@ -31,7 +31,7 @@ Navigate to directory and type:
 - **1a_Prelim_Catalog_Analysis.ipynb**
   - Explores the regional and local earthquake catalogs and computes event azimuth and distance relative to the PFO array.
 - **1b_Database_Construction.ipynb**
-  - Performs waveform quality control and constructs the final event database used for VASA.
+  - Performs waveform quality control and constructs the final event database used for VASA (waveforms.npy, event_meta.pkl, and dataset_info.pkl - these can be found on the corresponding Zenodo repository)
 - **2_Data_Preprocessing.ipynb**
   - Converts the compiled waveform database into the final model-ready dataset by filtering the waveforms, removing poorly reconstructed low-magnitude events, evaluating spatial coherency, and producing the train/test split and associated metadata used for VASA.
 - **3a_Visualize_VASA.ipynb**
