@@ -51,6 +51,11 @@ Navigate to directory and type:
   - Curated local event catalog for the PFO array, including the final catalog file and quality-control spreadsheets listing events removed automatically and manually during database construction.
 - **Training_Logs/**
   - Contain the training results for the 0.5 - 5 Hz and the 0.5 - 10 Hz models
+- **Models/** (create this directory - the files that need to be in here can be found in the Zenodo repository)
+  - **vasa_v1.keras** (Zenodo): weights for the 0.5 - 5 Hz model after training for 500 epochs
+  - **vasa_v1_1000epochs.keras** (Zenodo): weights for the 0.5 - 5 Hz model after training for 1000 epochs
+  - **vasa_v1_10Hz.keras** (Zenodo): weights for the 0.5 - 10 Hz model after training for 500 epochs
+  - **vasa_v1_10Hz_1000epochs.keras** (Zenodo): weights for the 0.5 - 10 Hz model after training for 1000 epochs 
 - **Database/** (create this directory - the files that need to be in here can be found in the Zenodo repository)
   - **waveforms.npy** (Zenodo): Disk-backed NumPy array containing the compiled waveform database. Each event is stored as a fixed-size tensor of filtered three-component waveforms across the retained PFO stations, providing the core input data used for subsequent preprocessing and model training. (Notebook 1b)
   - **event_meta.pkl** (Zenodo): Pickled pandas Dataframe containing the event-level metadata associated with waveforms.npy. Each row corresponds to one waveform entry in the database and includes the catalog information and source file path needed to track each event through preprocessing and analysis. (Notebook 1b)
