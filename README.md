@@ -33,11 +33,11 @@ Navigate to directory and type:
 - **1b_Database_Construction.ipynb**
   - Performs waveform quality control and constructs the final event database used for VASA (waveforms.npy, event_meta.pkl, and dataset_info.pkl - these can be found on the corresponding Zenodo repository)
 - **2_Data_Preprocessing.ipynb**
-  - Converts the compiled waveform database into the final model-ready dataset by filtering the waveforms, removing poorly reconstructed low-magnitude events, evaluating spatial coherency, and producing the train/test split and associated metadata used for VASA.
+  - Converts the compiled waveform database into the final model-ready dataset by filtering the waveforms, removing low-magnitude events to reach dataset size of 30,000, evaluating spatial coherency, and producing the train/test split and associated metadata used for VASA. This is where the files meta_test.pkl, meta_train.pkl, X_test5.npy, X_test10.npy, X_train5.npy, and X_train10.npy are all constructed (these files can be found on the Zenodo repository).
 - **3a_Visualize_VASA.ipynb**
   - Displays the full VASA architecture for inspection and documentation.
 - **3b_Train_VASA_v1.ipynb**
-  - Implements training of the initial VASA architecture using the finalized train/test split and provides an initial evaluation of model behavior, including validation tracking and qualitative reconstruction checks.
+  - Implements training of the initial VASA architecture using the finalized train/test split and provides an initial evaluation of model behavior, including validation tracking and qualitative reconstruction checks. This is where the files Models/vasa_v1.keras, Models/vasa_v1_1000epochs.keras, Models/vasa_v1_10Hz.keras/ Models/vasa_v1_10Hz_1000epochs.keras, Training_Logs/training_log_v1.csv, and Training_Logs/training_log_v1_10Hz.csv are constructed.
 - **3c_Evaluate_VASA_v1.ipynb**
   - Applies FK array processing to observed and reconstructed waveforms in order to evaluate whether VASA preserves the directional and kinematic structure of the seismic wavefield during sensor reconstruction.
 
