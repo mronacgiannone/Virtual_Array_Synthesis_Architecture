@@ -12,7 +12,7 @@ The repository includes:
 - FK-based physical validation of reconstructed wavefields
 - interpretability analyses of sensor importance
 
-IMPORTANT: All files needed to reproduce the results within the study can be found either here or on the Zenodo repository. The only thing missing are the .mseed files with instrument response removed (not enough storage on Zenodo). These waveforms were bandpass filtered, demeaned, and detrended (and certain events were removed due to data unavailability). The resulting waveforms.npy, event_meta.pkl, and dataset_info.pkl are accessible and were created in notebook 1b. So please begin processing from notebook 2. If you would like the original .mseed files, please contact corresponding author at miroronac24@gmail.com.
+IMPORTANT: All files needed to reproduce the results within the study can be found either here or on the Zenodo repository. The only thing missing are the .mseed files with instrument response removed (not enough storage on Zenodo). These waveforms were bandpass filtered, demeaned, and detrended (and certain events were removed due to data unavailability). The resulting waveforms.npy, event_meta.pkl, and dataset_info.pkl are accessible and were created in notebook 1b. So please begin processing from notebook 2. If you would like the original .mseed files to run notebooks 1a and 1b, please contact corresponding author at miroronac24@gmail.com.
 
 ## Cardinal
 
