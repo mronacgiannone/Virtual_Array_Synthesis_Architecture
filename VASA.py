@@ -6,7 +6,7 @@
 #-----------------------------------------------------------------------------------------------------------------#
 # Import pacakages
 import warnings, sys
-sys.path.append('/Path/to/Cardinal')
+# sys.path.append('/Path/to/Cardinal')
 import cardinal, cardinal_fk
 #-----------------------------------------------------------------------------------------------------------------#
 # Import packages as
@@ -49,6 +49,7 @@ def load_site_file(site_path):
 
     return site_df
 
+    
 def build_distance_matrix_from_site(site_path,
                                     station_order,
                                     use_elevation=False,
@@ -122,6 +123,7 @@ def compute_global_component_mad_scale(X_train, n_events=3000, eps=1e-12, seed=1
     scale = np.maximum(scale, eps)
 
     return center.astype(np.float32), scale.astype(np.float32)
+
     
 # Scale using global asinh over all components
 def compute_global_shared_mad_scale(X_train, n_events=3000, eps=1e-12, seed=123):
@@ -155,6 +157,7 @@ def compute_global_shared_mad_scale(X_train, n_events=3000, eps=1e-12, seed=123)
 
     return np.float32(center), np.float32(scale)
 
+
 def global_asinh_scale(
     x_clean,
     global_center,
@@ -180,6 +183,7 @@ def global_asinh_scale(
         x_scaled = tf.clip_by_value(x_scaled, -final_clip, final_clip)
 
     return x_scaled
+
 
 def global_signed_log1p_scale(
     x_clean,
@@ -245,6 +249,7 @@ def add_observed_noise_percent(x_masked, observed, pct=1.0, eps=1e-12):
     # Add noise only to observed waveform samples, not masked target locations.
     return x_masked + noise * observed
 
+
 # Adding random time shifts
 def random_event_time_shift_zero_pad(x, max_shift_seconds=2.5, sampling_rate=40.0):
     max_shift_samples = int(round(max_shift_seconds * sampling_rate))
@@ -282,6 +287,7 @@ def random_event_time_shift_zero_pad(x, max_shift_seconds=2.5, sampling_rate=40.
 
     x_shifted.set_shape(x.shape)
     return x_shifted
+
 
 # Stateless augmentations (same random pattern for each epoch)
 def add_observed_noise_percent_stateless(
@@ -329,6 +335,7 @@ def add_observed_noise_percent_stateless(
     noise = noise * observed_std * (pct / 100.0)
 
     return x_masked + noise * observed
+
 
 def random_signal_gain_augmentation_stateless(
     x_clean,
@@ -517,6 +524,7 @@ def make_fixed_sensor_example_global_scaled(
     }
 
     return inputs, y_with_mask
+
     
 def make_fixed_sensor_example_global_scaled_3branch(
     index,
@@ -605,6 +613,7 @@ def make_fixed_sensor_example_global_scaled_3branch(
     }
 
     return inputs, targets
+
 
 def make_fixed_sensor_example_global_scaled_3branch_stateless(
     index,
@@ -719,6 +728,7 @@ def make_fixed_sensor_example_global_scaled_3branch_stateless(
 
     return inputs, targets
 
+
 def make_fixed_sensor_example_global_scaled_3branch_stateless_mag(
     index,
     x_clean,
@@ -832,6 +842,119 @@ def make_fixed_sensor_example_global_scaled_3branch_stateless_mag(
 
     return inputs, targets
 
+
+def make_multi_sensor_example(
+    index,
+    x_clean,
+    distance_matrix,
+    global_center,
+    global_scale,
+    seed,
+    num_masked=2,
+    noise_pct=0.0,
+    max_shift_seconds=0.0,
+    sampling_rate=40.0,
+    output_gain=1.0,
+    final_clip=100.0,
+    scale_type="asinh",
+):
+    x_clean = tf.cast(x_clean, tf.float32)
+    index = tf.cast(index, tf.int32)
+    seed = tf.cast(seed, tf.int32)
+
+    # Apply identical event augmentation before creating teacher/student views.
+    if max_shift_seconds > 0:
+        x_clean = random_event_time_shift_zero_pad_stateless(
+            x_clean,
+            index=index,
+            seed=seed,
+            max_shift_seconds=max_shift_seconds,
+            sampling_rate=sampling_rate,
+        )
+
+    if scale_type == "asinh":
+        x_scaled = global_asinh_scale(
+            x_clean,
+            global_center=global_center,
+            global_scale=global_scale,
+            output_gain=output_gain,
+            final_clip=final_clip,
+        )
+    elif scale_type == "log1p":
+        x_scaled = global_signed_log1p_scale(
+            x_clean,
+            global_center=global_center,
+            global_scale=global_scale,
+            output_gain=output_gain,
+            final_clip=final_clip,
+        )
+    else:
+        raise ValueError(f"Unknown scale_type: {scale_type}")
+
+    sensor_dim = tf.shape(x_scaled)[0]
+    temporal_dim = tf.shape(x_scaled)[1]
+    channel_dim = tf.shape(x_scaled)[2]
+
+    # Random ranking guarantees unique masked sensors.
+    mask_seed = tf.stack([seed + 40000, index])
+    random_scores = tf.random.stateless_uniform(
+        [sensor_dim],
+        seed=mask_seed,
+    )
+    masked_ids = tf.argsort(random_scores)[:num_masked]
+
+    sensor_mask = tf.reduce_sum(
+        tf.one_hot(masked_ids, sensor_dim, dtype=tf.float32),
+        axis=0,
+    )
+    sensor_mask = sensor_mask[:, None, None]
+
+    mask = tf.tile(
+        sensor_mask,
+        [1, temporal_dim, channel_dim],
+    )
+    observed = 1.0 - mask
+
+    # Student: two sensors removed.
+    x_student = x_scaled * observed
+
+    if noise_pct > 0:
+        x_student = add_observed_noise_percent_stateless(
+            x_student,
+            observed,
+            index=index,
+            seed=seed,
+            pct=noise_pct,
+        )
+
+    student_input = tf.concat([x_student, observed], axis=-1)
+
+    # Teacher: all sensors observed, without observed-sensor noise.
+    teacher_observed = tf.ones_like(x_scaled)
+    teacher_input = tf.concat(
+        [x_scaled, teacher_observed],
+        axis=-1,
+    )
+
+    inputs = {
+        "student_seismic_input": student_input,
+        "teacher_seismic_input": teacher_input,
+        "distance_input": tf.cast(distance_matrix, tf.float32),
+    }
+
+    targets = {
+        "Z_Output": tf.concat(
+            [x_scaled[..., 0:1], mask[..., 0:1]], axis=-1
+        ),
+        "N_Output": tf.concat(
+            [x_scaled[..., 1:2], mask[..., 1:2]], axis=-1
+        ),
+        "E_Output": tf.concat(
+            [x_scaled[..., 2:3], mask[..., 2:3]], axis=-1
+        ),
+    }
+
+    return inputs, targets
 '------------------------------------------------------------------------------------------------------------------------------------------------------------------------'
 # Build training dataset
 def make_vasa_epoch_train_dataset_global_scaled(
@@ -877,6 +1000,7 @@ def make_vasa_epoch_train_dataset_global_scaled(
     ds = ds.prefetch(tf.data.AUTOTUNE)
 
     return ds
+
 
 # 3 separate branches
 def make_vasa_epoch_train_dataset_global_scaled_3branch(
@@ -924,6 +1048,7 @@ def make_vasa_epoch_train_dataset_global_scaled_3branch(
     ds = ds.prefetch(tf.data.AUTOTUNE)
 
     return ds
+
 
 # Stateless augmentations (same random pattern per epoch)
 def make_vasa_epoch_train_dataset_global_scaled_3branch_stateless(
@@ -981,6 +1106,7 @@ def make_vasa_epoch_train_dataset_global_scaled_3branch_stateless(
     ds = ds.prefetch(tf.data.AUTOTUNE)
 
     return ds
+
     
 def make_vasa_epoch_train_dataset_global_scaled_3branch_stateless_oversampled(
     X,
@@ -1161,6 +1287,80 @@ def make_vasa_epoch_train_dataset_global_scaled_3branch_stateless_oversampled_ma
 
     return ds, epoch_indices
 
+
+def make_multisensor_train_dataset(
+    X,
+    meta_df,
+    D_norm,
+    batch_size,
+    global_center,
+    global_scale,
+    epoch_seed,
+    num_masked=2,
+    shuffle_buffer=2048,
+    noise_pct=2.5,
+    max_shift_seconds=5.0,
+    sampling_rate=40.0,
+    output_gain=1.0,
+    final_clip=100.0,
+    scale_type="asinh",
+    mag_threshold=2.0,
+    target_large_frac=0.25,
+):
+    X = np.asarray(X, dtype=np.float32)
+    mags = meta_df.reset_index(drop=True)["MAG"].to_numpy(np.float32)
+
+    large_idx = np.where(mags >= mag_threshold)[0]
+    other_idx = np.where(mags < mag_threshold)[0]
+
+    rng = np.random.default_rng(epoch_seed)
+    n_events = len(X)
+
+    n_large = int(round(target_large_frac * n_events))
+    n_large = min(max(n_large, 1), n_events - 1)
+    n_other = n_events - n_large
+
+    sampled_large = rng.choice(large_idx, n_large, replace=True)
+    sampled_other = rng.choice(
+        other_idx,
+        n_other,
+        replace=n_other > len(other_idx),
+    )
+
+    epoch_indices = np.concatenate([sampled_large, sampled_other])
+    rng.shuffle(epoch_indices)
+
+    D_tf = tf.constant(D_norm, tf.float32)
+    center_tf = tf.constant(global_center, tf.float32)
+    scale_tf = tf.constant(global_scale, tf.float32)
+
+    ds = tf.data.Dataset.from_tensor_slices(X[epoch_indices])
+    ds = ds.enumerate()
+
+    ds = ds.map(
+        lambda i, x: make_multi_sensor_example(
+            i,
+            x,
+            D_tf,
+            center_tf,
+            scale_tf,
+            seed=epoch_seed,
+            num_masked=num_masked,
+            noise_pct=noise_pct,
+            max_shift_seconds=max_shift_seconds,
+            sampling_rate=sampling_rate,
+            output_gain=output_gain,
+            final_clip=final_clip,
+            scale_type=scale_type,
+        ),
+        num_parallel_calls=tf.data.AUTOTUNE,
+    )
+
+    ds = ds.shuffle(shuffle_buffer)
+    ds = ds.batch(batch_size, drop_remainder=False)
+    ds = ds.prefetch(tf.data.AUTOTUNE)
+
+    return ds, epoch_indices
 '------------------------------------------------------------------------------------------------------------------------------------------------------------------------'
 # Make test set
 def make_vasa_val_dataset_global_scaled(
@@ -1203,6 +1403,7 @@ def make_vasa_val_dataset_global_scaled(
     ds = ds.prefetch(tf.data.AUTOTUNE)
 
     return ds
+
 
 def make_vasa_val_dataset_global_scaled_3branch(
     X,
@@ -1306,6 +1507,47 @@ def make_vasa_val_dataset_global_scaled_3branch_mag(
 
     return ds
 
+
+def make_multisensor_val_dataset(
+    X,
+    D_norm,
+    batch_size,
+    global_center,
+    global_scale,
+    seed=2024,
+    num_masked=2,
+    output_gain=1.0,
+    final_clip=100.0,
+    scale_type="asinh",
+):
+    D_tf = tf.constant(D_norm, tf.float32)
+    center_tf = tf.constant(global_center, tf.float32)
+    scale_tf = tf.constant(global_scale, tf.float32)
+
+    ds = tf.data.Dataset.from_tensor_slices(
+        np.asarray(X, dtype=np.float32)
+    )
+    ds = ds.enumerate()
+
+    ds = ds.map(
+        lambda i, x: make_multi_sensor_example(
+            i,
+            x,
+            D_tf,
+            center_tf,
+            scale_tf,
+            seed=seed,
+            num_masked=num_masked,
+            noise_pct=0.0,
+            max_shift_seconds=0.0,
+            output_gain=output_gain,
+            final_clip=final_clip,
+            scale_type=scale_type,
+        ),
+        num_parallel_calls=tf.data.AUTOTUNE,
+    )
+
+    return ds.batch(batch_size, drop_remainder=False).prefetch(tf.data.AUTOTUNE)
 '------------------------------------------------------------------------------------------------------------------------------------------------------------------------'
 # Train dataset statistics
 def sanity_check_batch(batch, mode="3branch"):
@@ -1639,6 +1881,7 @@ def masked_mse_loss(y_true_with_mask, y_pred, eps=1e-7):
     mse = tf.square(y_true - y_pred) * mask
     return tf.reduce_sum(mse) / (tf.reduce_sum(mask) + eps)
 
+
 def masked_1c_mse_loss(y_true_with_mask, y_pred, eps=1e-8):
     y_true_z = y_true_with_mask[..., 0:1]
     mask_z = y_true_with_mask[..., 3:4]
@@ -1647,6 +1890,7 @@ def masked_1c_mse_loss(y_true_with_mask, y_pred, eps=1e-8):
 
     return tf.reduce_sum(se) / (tf.reduce_sum(mask_z) + eps)
 
+
 def masked_1c_mse_loss_2ch(y_true_with_mask, y_pred, eps=1e-8):
     y_true_z = y_true_with_mask[..., 0:1]
     mask_z = y_true_with_mask[..., 1:2]
@@ -1654,6 +1898,7 @@ def masked_1c_mse_loss_2ch(y_true_with_mask, y_pred, eps=1e-8):
     se = tf.square(y_true_z - y_pred) * mask_z
 
     return tf.reduce_sum(se) / (tf.reduce_sum(mask_z) + eps)
+
 
 def masked_huber_loss(delta=1.0, eps=1e-8):
     """
@@ -1684,6 +1929,7 @@ def masked_huber_loss(delta=1.0, eps=1e-8):
 
     return loss
 
+
 def masked_1c_huber_loss_2ch(delta=1.0, eps=1e-8):
     """
     Masked Huber loss for Z-only reconstruction.
@@ -1713,6 +1959,27 @@ def masked_1c_huber_loss_2ch(delta=1.0, eps=1e-8):
 
     return loss
 
+
+def masked_latent_cosine_loss(
+    teacher_latent,
+    student_latent,
+    latent_mask,
+    eps=1e-8,
+):
+    teacher = tf.stop_gradient(teacher_latent)
+
+    teacher_norm = tf.math.l2_normalize(teacher, axis=-1)
+    student_norm = tf.math.l2_normalize(student_latent, axis=-1)
+
+    cosine_distance = 1.0 - tf.reduce_sum(
+        teacher_norm * student_norm,
+        axis=-1,
+        keepdims=True,
+    )
+
+    return tf.reduce_sum(cosine_distance * latent_mask) / (
+        tf.reduce_sum(latent_mask) + eps
+    )
 '------------------------------------------------------------------------------------------------------------------------------------------------------------------------'
 # Evaluate metrics separately during training
 def masked_rmse_metric(y_true_with_mask, y_pred, eps=1e-7):
@@ -1855,6 +2122,49 @@ def masked_1c_corr_metric_2ch(y_true_with_mask, y_pred, eps=1e-8):
 
     return numerator / denominator
 
+
+def masked_sensor_mean_corr(y_true_with_mask, y_pred, eps=1e-8):
+    """
+    Computes Pearson correlation separately for each masked
+    sensor/component waveform, then averages valid correlations.
+
+    y_true_with_mask: [B, S, T, 2]
+    y_pred:           [B, S, T, 1]
+    """
+    y_true = y_true_with_mask[..., 0]
+    mask = y_true_with_mask[..., 1]
+    y_pred = y_pred[..., 0]
+
+    # [B, S]: 1 for reconstructed sensors
+    sensor_mask = tf.reduce_max(mask, axis=-1)
+
+    # Means along time for every event and sensor.
+    true_mean = tf.reduce_sum(y_true * mask, axis=-1) / (
+        tf.reduce_sum(mask, axis=-1) + eps
+    )
+    pred_mean = tf.reduce_sum(y_pred * mask, axis=-1) / (
+        tf.reduce_sum(mask, axis=-1) + eps
+    )
+
+    true_centered = (y_true - true_mean[..., None]) * mask
+    pred_centered = (y_pred - pred_mean[..., None]) * mask
+
+    numerator = tf.reduce_sum(
+        true_centered * pred_centered,
+        axis=-1,
+    )
+
+    denominator = tf.sqrt(
+        tf.reduce_sum(tf.square(true_centered), axis=-1)
+        * tf.reduce_sum(tf.square(pred_centered), axis=-1)
+        + eps
+    )
+
+    correlations = numerator / denominator
+
+    return tf.reduce_sum(correlations * sensor_mask) / (
+        tf.reduce_sum(sensor_mask) + eps
+    )
 '------------------------------------------------------------------------------------------------------------------------------------------------------------------------'
 # Callbacks
 class SumValCorrCallback(tf.keras.callbacks.Callback):
@@ -2144,60 +2454,92 @@ def build_component_encoder(component_input, sensor_dim, temporal_dim, name):
         x_attn: [B, S, T']
         skips: dict of skip tensors
     """
-    waveform = Lambda(lambda x: x[..., 0:1], name=f"{name}_Waveform_Input")(component_input)
-    observed_mask = Lambda(lambda x: x[..., 1:2], name=f"{name}_ObservedMask_Input")(component_input)
+    waveform = Lambda(
+        lambda x: x[..., 0:1],
+        name=f"{name}_Waveform_Input"
+    )(component_input)
 
-    x, skip_2400, skip_1200, skip_600, skip_300 = temporal_pyramid_branch(waveform, prefix=name)
+    observed_mask = Lambda(
+        lambda x: x[..., 1:2],
+        name=f"{name}_ObservedMask_Input"
+    )(component_input)
 
-    x = Conv2D(128, (1, 1), padding="same", kernel_initializer="he_uniform",
-               name=f"{name}_Expand")(x)
+    x, skip_2400, skip_1200, skip_600, skip_300 = temporal_pyramid_branch(
+        waveform,
+        prefix=name,
+    )
+
+    x = Conv2D(
+        128,
+        (1, 1),
+        padding="same",
+        kernel_initializer="he_uniform",
+        name=f"{name}_Expand",
+    )(x)
     x = LayerNormalization(axis=-1, name=f"{name}_Expand_LN")(x)
     x = activations.relu(x)
 
     sensor_observed = Lambda(
         lambda m: tf.reduce_max(m, axis=-1, keepdims=True),
-        name=f"{name}_Sensor_Observed_Indicator"
+        name=f"{name}_Sensor_Observed_Indicator",
     )(observed_mask)
 
+    ds_factor = temporal_dim // int(x.shape[2])
+
     sensor_observed_ds = AveragePooling2D(
-        pool_size=(1, temporal_dim // x.shape[2]),
-        strides=(1, temporal_dim // x.shape[2]),
+        pool_size=(1, ds_factor),
+        strides=(1, ds_factor),
         padding="same",
-        name=f"{name}_Sensor_Observed_Downsample"
+        name=f"{name}_Sensor_Observed_Downsample",
     )(sensor_observed)
 
-    x = Concatenate(axis=-1, name=f"{name}_Feature_With_ObservedMask")([x, sensor_observed_ds])
+    x = Concatenate(axis=-1, name=f"{name}_Feature_With_ObservedMask")(
+        [x, sensor_observed_ds]
+    )
 
-    x = Conv2D(64, (1, 1), padding="same", kernel_initializer="he_uniform",
-               name=f"{name}_PostMask_Feature_Projection")(x)
+    x = Conv2D(
+        64,
+        (1, 1),
+        padding="same",
+        kernel_initializer="he_uniform",
+        name=f"{name}_PostMask_Feature_Projection",
+    )(x)
     x = LayerNormalization(axis=-1, name=f"{name}_PostMask_LN")(x)
     x = activations.relu(x)
 
-    skip_150 = x  # [B, S, 150, 64]
+    skip_150 = x  # [B, S, T', 64]
 
     # Learned feature pooling -> [B, S, T']
-    q = Conv2D(16,
-               kernel_size=(1, 3),
-               activation="tanh",
-               padding="same",
-               kernel_initializer="he_uniform",
-               name=f"{name}_FeatureAttn_Conv")(x)
+    q = Conv2D(
+        16,
+        kernel_size=(1, 3),
+        activation="tanh",
+        padding="same",
+        kernel_initializer="he_uniform",
+        name=f"{name}_FeatureAttn_Conv",
+    )(x)
 
     F = int(x.shape[-1])
-    t_prime = int(x.shape[2])
+    t_prime = temporal_dim // 16
 
     a = Dense(F, name=f"{name}_FeatureAttn_Dense")(q)
     a = Softmax(axis=-1, name=f"{name}_FeatureAttn_Score")(a)
 
+    def _pool_features(t):
+        pooled = tf.reduce_sum(t[0] * t[1], axis=-1)
+        pooled = tf.ensure_shape(pooled, (None, sensor_dim, t_prime))
+        return pooled
+
     x_attn = Lambda(
-        lambda t: tf.reduce_sum(t[0] * t[1], axis=-1),
+        _pool_features,
         output_shape=(sensor_dim, t_prime),
-        name=f"{name}_FeatureAttn_Pool"
+        name=f"{name}_FeatureAttn_Pool",
     )([x, a])
 
     x_attn = LayerNormalization(
+        axis=-1,
         epsilon=1e-6,
-        name=f"{name}_FeatureAttn_LN"
+        name=f"{name}_FeatureAttn_LN",
     )(x_attn)
 
     skips = {
@@ -2769,6 +3111,12 @@ def plot_random_test_reconstruction(
     xlim=(0, 60),
     legend_locs=None,
     metric_text_locs=None,
+    plot_array_coherence=False,
+    coherence_window_length=5.0,
+    coherence_step=1.0,
+    coherence_component="all",
+    coherence_include_target=False,
+    coherence_use_reconstructed_target=True,
 ):
     rng = np.random.default_rng(seed)
 
@@ -2806,7 +3154,7 @@ def plot_random_test_reconstruction(
         global_center=tf.constant(global_center, dtype=tf.float32),
         global_scale=tf.constant(global_scale, dtype=tf.float32),
         output_gain=output_gain,
-        final_clip=final_clip
+        final_clip=final_clip,
     ).numpy()
 
     mask = np.zeros_like(x_scaled, dtype=np.float32)
@@ -2821,9 +3169,9 @@ def plot_random_test_reconstruction(
     preds = model.predict(
         {
             "seismic_input": x_model,
-            "distance_input": d_model
+            "distance_input": d_model,
         },
-        verbose=0
+        verbose=0,
     )
 
     y_pred_scaled = get_3branch_predictions(preds)[0]
@@ -2839,26 +3187,39 @@ def plot_random_test_reconstruction(
             true_masked,
             global_center,
             global_scale,
-            output_gain
+            output_gain,
         )
         pred_plot = inverse_global_asinh_scale(
             pred_masked,
             global_center,
             global_scale,
-            output_gain
+            output_gain,
         )
         observed_plot = inverse_global_asinh_scale(
             observed_scaled,
             global_center,
             global_scale,
-            output_gain
+            output_gain,
         )
-        ylabel = "Vel. [km/s]"
+        full_true_plot = inverse_global_asinh_scale(
+            x_scaled,
+            global_center,
+            global_scale,
+            output_gain,
+        )
+        full_reconstructed_plot = full_true_plot.copy()
+        full_reconstructed_plot[sensor_index] = pred_plot
+
+        ylabel = "Vel. [m/s]"
         title_suffix = "0.5 - 5 Hz"
     else:
         true_plot = true_masked
         pred_plot = pred_masked
         observed_plot = observed_scaled
+        full_true_plot = x_scaled.copy()
+        full_reconstructed_plot = full_true_plot.copy()
+        full_reconstructed_plot[sensor_index] = pred_plot
+
         ylabel = "Scaled amplitude"
         title_suffix = "scaled model space"
 
@@ -2866,15 +3227,6 @@ def plot_random_test_reconstruction(
     time = np.arange(temporal_dim) / sampling_rate
 
     def _resolve_per_subplot_setting(setting, ci, comp_name, default=None):
-        """
-        Resolve per-subplot settings.
-
-        Supported:
-        - None -> default
-        - scalar/str/tuple -> same setting for all subplots
-        - list/tuple length 3 -> per-subplot
-        - dict with keys component names or indices
-        """
         if setting is None:
             return default
 
@@ -2886,13 +3238,10 @@ def plot_random_test_reconstruction(
             return default
 
         if isinstance(setting, (list, tuple)):
-            # Treat 2-tuples like a single coordinate setting for all subplots
             if len(setting) == 2 and not isinstance(setting[0], (list, tuple, dict)):
                 return setting
             if len(setting) != 3:
-                raise ValueError(
-                    "Per-subplot list/tuple settings must have length 3."
-                )
+                raise ValueError("Per-subplot list/tuple settings must have length 3.")
             return setting[ci]
 
         return setting
@@ -2902,47 +3251,32 @@ def plot_random_test_reconstruction(
             legend_locs,
             ci,
             comp_name,
-            default="upper right" if ci == 0 else None
+            default="upper right" if ci == 0 else None,
         )
 
     def _resolve_metric_text_loc(ci, comp_name):
-        """
-        Returns a dict with:
-        {
-            "x": float,
-            "y": float,
-            "ha": str,
-            "va": str,
-        }
-        """
         default = {"x": 0.02, "y": 0.95, "ha": "left", "va": "top"}
         loc = _resolve_per_subplot_setting(metric_text_locs, ci, comp_name, default=default)
 
-        # Named presets
         if isinstance(loc, str):
             presets = {
-                "upper left":  {"x": 0.02, "y": 0.95, "ha": "left",  "va": "top"},
+                "upper left": {"x": 0.02, "y": 0.95, "ha": "left", "va": "top"},
                 "upper right": {"x": 0.98, "y": 0.95, "ha": "right", "va": "top"},
-                "lower left":  {"x": 0.02, "y": 0.05, "ha": "left",  "va": "bottom"},
+                "lower left": {"x": 0.02, "y": 0.05, "ha": "left", "va": "bottom"},
                 "lower right": {"x": 0.98, "y": 0.05, "ha": "right", "va": "bottom"},
-                "center left": {"x": 0.02, "y": 0.50, "ha": "left",  "va": "center"},
-                "center right":{"x": 0.98, "y": 0.50, "ha": "right", "va": "center"},
-                "center":      {"x": 0.50, "y": 0.50, "ha": "center","va": "center"},
+                "center left": {"x": 0.02, "y": 0.50, "ha": "left", "va": "center"},
+                "center right": {"x": 0.98, "y": 0.50, "ha": "right", "va": "center"},
+                "center": {"x": 0.50, "y": 0.50, "ha": "center", "va": "center"},
             }
             if loc not in presets:
-                raise ValueError(
-                    "metric_text_locs preset must be one of: "
-                    f"{list(presets.keys())}"
-                )
+                raise ValueError(f"metric_text_locs preset must be one of: {list(presets.keys())}")
             return presets[loc]
 
-        # Dict form
         if isinstance(loc, dict):
             merged = default.copy()
             merged.update(loc)
             return merged
 
-        # Tuple/list coordinate form
         if isinstance(loc, (tuple, list)) and len(loc) == 2:
             x, y = loc
             ha = "left" if x <= 0.5 else "right"
@@ -2954,18 +3288,110 @@ def plot_random_test_reconstruction(
             "a dict, a length-3 list/tuple, or a dict keyed by component/index."
         )
 
-    fig, axes = plt.subplots(
-        3,
-        1,
-        figsize=(14, 8),
-        sharex=True,
-        clear=True
-    )
+    def _coherence_component_indices(component):
+        if component is None or str(component).lower() == "all":
+            return list(range(3)), "all components"
+
+        aliases = {
+            "0": 0, 0: 0, "bhz": 0, "z": 0,
+            "1": 1, 1: 1, "bhn": 1, "n": 1,
+            "2": 2, 2: 2, "bhe": 2, "e": 2,
+        }
+
+        key = component.lower() if isinstance(component, str) else component
+        if key not in aliases:
+            raise ValueError(
+                "coherence_component must be 'all', 'BHZ', 'BHN', 'BHE', "
+                "'Z', 'N', 'E', 0, 1, or 2."
+            )
+
+        idx = aliases[key]
+        return [idx], component_names[idx]
+
+    def _compute_sliding_array_coherence(
+        array_data,
+        sensor_indices,
+        component_indices,
+        window_length_sec,
+        step_sec,
+    ):
+        window_samples = int(round(window_length_sec * sampling_rate))
+        step_samples = int(round(step_sec * sampling_rate))
+
+        if window_samples < 2:
+            raise ValueError("coherence_window_length is too short.")
+        if step_samples < 1:
+            raise ValueError("coherence_step is too short.")
+        if len(sensor_indices) < 2:
+            raise ValueError("At least two sensors are required for array coherence.")
+
+        centers_sec = []
+        mean_max_xcorr = []
+        n_pairs_used = []
+
+        for start in range(0, temporal_dim - window_samples + 1, step_samples):
+            stop = start + window_samples
+            t_win = time[start:stop]
+
+            vals = []
+
+            for ci in component_indices:
+                for ii, si in enumerate(sensor_indices):
+                    a = array_data[si, start:stop, ci]
+
+                    if not np.all(np.isfinite(a)):
+                        continue
+
+                    for sj in sensor_indices[ii + 1:]:
+                        b = array_data[sj, start:stop, ci]
+
+                        if not np.all(np.isfinite(b)):
+                            continue
+
+                        if np.nanstd(a) == 0 or np.nanstd(b) == 0:
+                            continue
+
+                        _, xcorr = norm_xcorr(t_win, a, b)
+                        vals.append(float(np.nanmax(xcorr)))
+
+            centers_sec.append(0.5 * (time[start] + time[stop - 1]))
+            mean_max_xcorr.append(np.nanmean(vals) if len(vals) else np.nan)
+            n_pairs_used.append(len(vals))
+
+        return {
+            "time_sec": np.asarray(centers_sec),
+            "mean_max_xcorr": np.asarray(mean_max_xcorr),
+            "n_pairs_used": np.asarray(n_pairs_used),
+            "window_length_sec": window_length_sec,
+            "step_sec": step_sec,
+        }
+
+    if plot_array_coherence:
+        fig, axes = plt.subplots(
+            4,
+            1,
+            figsize=(14, 10.5),
+            sharex=True,
+            clear=True,
+            gridspec_kw={"height_ratios": [1, 1, 1, 0.8]},
+        )
+        waveform_axes = axes[:3]
+        coherence_ax = axes[3]
+    else:
+        fig, axes = plt.subplots(
+            3,
+            1,
+            figsize=(14, 8),
+            sharex=True,
+            clear=True,
+        )
+        waveform_axes = axes
+        coherence_ax = None
 
     xcorr_stats = {}
     amplitude_stats = {}
 
-    for ci, ax in enumerate(axes):
+    for ci, ax in enumerate(waveform_axes):
         context_labeled = False
 
         if show_context_sensors:
@@ -2979,7 +3405,7 @@ def plot_random_test_reconstruction(
                     color="0.75",
                     linewidth=0.7,
                     alpha=0.55,
-                    label="Observed context" if not context_labeled else None
+                    label="Observed context" if not context_labeled else None,
                 )
                 if not context_labeled:
                     context_labeled = True
@@ -2989,7 +3415,7 @@ def plot_random_test_reconstruction(
             true_plot[:, ci],
             color="black",
             linewidth=1.8,
-            label=f"True masked {station_order[sensor_index]}"
+            label=f"True masked {station_order[sensor_index]}",
         )
 
         ax.plot(
@@ -2998,13 +3424,13 @@ def plot_random_test_reconstruction(
             color="crimson",
             linewidth=1.4,
             linestyle="--",
-            label="Prediction"
+            label="Prediction",
         )
 
         lags_sec, x_corr = norm_xcorr(
             time,
             true_plot[:, ci],
-            pred_plot[:, ci]
+            pred_plot[:, ci],
         )
         best_idx = int(np.argmax(x_corr))
         max_corr = float(x_corr[best_idx])
@@ -3017,7 +3443,7 @@ def plot_random_test_reconstruction(
 
         ratios = raw_amplitude_ratios(
             true_plot[:, ci],
-            pred_plot[:, ci]
+            pred_plot[:, ci],
         )
 
         amplitude_stats[component_names[ci]] = ratios
@@ -3028,8 +3454,8 @@ def plot_random_test_reconstruction(
             metric_loc["x"],
             metric_loc["y"],
             (
-                f"max xcorr = {max_corr:.3f}\n"
-                f"best lag = {best_lag_sec:.4f} s\n"
+                f"Max xcorr = {max_corr:.3f}\n"
+                f"Best lag = {best_lag_sec:.4f} s\n"
                 f"RMS ratio = {ratios['rms_ratio']:.3f}\n"
                 f"Peak ratio = {ratios['peak_ratio']:.3f}"
             ),
@@ -3037,7 +3463,7 @@ def plot_random_test_reconstruction(
             va=metric_loc["va"],
             ha=metric_loc["ha"],
             fontsize=10,
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.85, edgecolor="0.7")
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.85, edgecolor="0.7"),
         )
 
         ax.set_ylabel(f"{component_names[ci]}\n{ylabel}")
@@ -3054,7 +3480,52 @@ def plot_random_test_reconstruction(
         if legend_loc is not None:
             ax.legend(loc=legend_loc)
 
-    axes[-1].set_xlabel("Time (s)")
+    array_coherence = None
+
+    if plot_array_coherence:
+        component_indices, component_label = _coherence_component_indices(coherence_component)
+
+        coherence_sensor_indices = [
+            si for si in range(sensor_dim)
+            if coherence_include_target or si != sensor_index
+        ]
+
+        if coherence_include_target and coherence_use_reconstructed_target:
+            coherence_array = full_reconstructed_plot
+            coherence_source = "observed + reconstructed target"
+        elif coherence_include_target:
+            coherence_array = full_true_plot
+            coherence_source = "fully observed array"
+        else:
+            coherence_array = full_true_plot
+            coherence_source = "observed context sensors only"
+
+        array_coherence = _compute_sliding_array_coherence(
+            coherence_array,
+            coherence_sensor_indices,
+            component_indices,
+            coherence_window_length,
+            coherence_step,
+        )
+
+        coherence_ax.plot(
+            array_coherence["time_sec"],
+            array_coherence["mean_max_xcorr"],
+            color="crimson",
+            linewidth=1.8,
+            marker="o",
+            markersize=3.5,
+        )
+
+        coherence_ax.set_ylabel("Max Normalized\nCorrelation Coefficient")
+        coherence_ax.set_xlabel("Time (s)")
+        coherence_ax.set_ylim(0, 1)
+        coherence_ax.set_xlim(xlim)
+        coherence_ax.grid(alpha=0.25)
+
+    else:
+        axes[-1].set_xlabel("Time (s)")
+
     fig.tight_layout()
 
     if save_fig:
@@ -3067,7 +3538,7 @@ def plot_random_test_reconstruction(
         fig.savefig(
             save_path,
             dpi=dpi,
-            bbox_inches="tight"
+            bbox_inches="tight",
         )
 
         print(f"Saved figure: {save_path}")
@@ -3087,6 +3558,7 @@ def plot_random_test_reconstruction(
         "axes": axes,
         "xcorr_stats": xcorr_stats,
         "amplitude_stats": amplitude_stats,
+        "array_coherence": array_coherence,
         "save_path": save_path if save_fig else None,
     }
 
@@ -3514,6 +3986,247 @@ def build_obspy_streams_for_reconstruction(
     }
 
     return st_observed, st_reconstructed, info
+
+def build_obspy_streams_for_multisensor_reconstruction(
+    model,
+    X_data,
+    D_norm,
+    global_center,
+    global_scale,
+    station_order,
+    site_file,
+    component="Z",              # "Z", "N", "E", "BHZ", "BHN", "BHE"
+    event_index=0,
+    observed_sensor=None,       # backward-compatible single observed sensor
+    observed_sensors=None,      # arbitrary observed sensors
+    masked_sensors=None,        # arbitrary masked sensors
+    meta_df=None,
+    output_gain=1.0,
+    final_clip=100.0,
+    plot_inverse=True,
+    sampling_rate=40.0,
+    starttime=None,
+    network="XX",
+    location="",
+    elev_in_km=True,
+):
+    """
+    Return three ObsPy Streams for arbitrary multisensor masking:
+
+    1. st_full:
+       fully observed / true array for the selected component
+
+    2. st_masked:
+       reduced array with masked sensors removed from the stream
+
+    3. st_reconstructed:
+       full array where observed sensors are kept true and masked sensors
+       are replaced by the model predictions
+
+    You must provide exactly one of:
+        observed_sensor      (single station/index; backward-compatible)
+        observed_sensors     (list of stations/indices)
+        masked_sensors       (list of stations/indices)
+
+    Notes
+    -----
+    - `st_masked` contains only the observed sensors.
+    - `st_reconstructed` contains all sensors.
+    - Metrics / FK on `st_masked` therefore reflect the physically reduced array.
+    """
+    site_dict = load_site_table(site_file, elev_in_km=elev_in_km)
+
+    component = component.upper()
+    comp_to_idx = {"Z": 0, "N": 1, "E": 2, "BHZ": 0, "BHN": 1, "BHE": 2}
+    comp_to_chan = {0: "BHZ", 1: "BHN", 2: "BHE"}
+
+    if component not in comp_to_idx:
+        raise ValueError("component must be one of 'Z', 'N', 'E', 'BHZ', 'BHN', 'BHE'")
+
+    ci = comp_to_idx[component]
+    chan = comp_to_chan[ci]
+
+    n_events, sensor_dim, temporal_dim, channel_dim = X_data.shape
+    if channel_dim != 3:
+        raise ValueError("X_data must have shape [N, S, T, 3].")
+    if len(station_order) != sensor_dim:
+        raise ValueError("station_order length must match sensor_dim.")
+
+    def _resolve_sensor_list(sensor_list, name):
+        if sensor_list is None:
+            return None
+
+        resolved = []
+        for s in sensor_list:
+            if isinstance(s, str):
+                if s not in station_order:
+                    raise ValueError(f"{name}: station {s!r} not found in station_order.")
+                resolved.append(station_order.index(s))
+            else:
+                s = int(s)
+                if not (0 <= s < sensor_dim):
+                    raise ValueError(f"{name}: sensor index {s} out of range.")
+                resolved.append(s)
+
+        return sorted(set(resolved))
+
+    # Backward compatibility with the old single-observed-sensor API
+    if observed_sensor is not None:
+        if observed_sensors is not None or masked_sensors is not None:
+            raise ValueError(
+                "If observed_sensor is provided, do not also provide "
+                "observed_sensors or masked_sensors."
+            )
+        observed_sensors = [observed_sensor]
+
+    observed_indices = _resolve_sensor_list(observed_sensors, "observed_sensors")
+    masked_indices = _resolve_sensor_list(masked_sensors, "masked_sensors")
+
+    if (observed_indices is None) == (masked_indices is None):
+        raise ValueError(
+            "Provide exactly one of observed_sensor, observed_sensors, or masked_sensors."
+        )
+
+    all_indices = set(range(sensor_dim))
+
+    if observed_indices is not None:
+        masked_indices = sorted(all_indices - set(observed_indices))
+    else:
+        observed_indices = sorted(all_indices - set(masked_indices))
+
+    if len(masked_indices) == 0:
+        raise ValueError("At least one sensor must be masked.")
+    if len(observed_indices) == 0:
+        raise ValueError("At least one sensor must be observed.")
+
+    observed_stations = [station_order[i] for i in observed_indices]
+    masked_stations = [station_order[i] for i in masked_indices]
+
+    # Determine stream start time
+    if starttime is None:
+        if meta_df is not None:
+            window_start_utc = meta_df.iloc[event_index]["window_start_utc"]
+            starttime = UTCDateTime(str(window_start_utc))
+        else:
+            starttime = UTCDateTime(0)
+    elif not isinstance(starttime, UTCDateTime):
+        starttime = UTCDateTime(starttime)
+
+    x_clean = X_data[event_index].astype(np.float32)   # [S, T, 3]
+
+    x_scaled = global_asinh_scale(
+        tf.constant(x_clean),
+        global_center=tf.constant(global_center, dtype=tf.float32),
+        global_scale=tf.constant(global_scale, dtype=tf.float32),
+        output_gain=output_gain,
+        final_clip=final_clip,
+    ).numpy()
+
+    observed_mask = np.zeros_like(x_scaled, dtype=np.float32)
+    observed_mask[observed_indices, :, :] = 1.0
+
+    x_observed = x_scaled * observed_mask
+
+    x_model = np.concatenate([x_observed, observed_mask], axis=-1)[None, ...]
+    d_model = D_norm.astype(np.float32)[None, ...]
+
+    preds = model.predict(
+        {
+            "seismic_input": x_model,
+            "distance_input": d_model
+        },
+        verbose=0
+    )
+
+    y_pred_scaled = get_3branch_predictions(preds)[0]   # [S, T, 3]
+
+    pred_mag = None
+    if isinstance(preds, dict) and "MAG_Output" in preds:
+        pred_mag = float(np.asarray(preds["MAG_Output"])[0, 0])
+    elif isinstance(preds, list) and len(preds) >= 4:
+        pred_mag = float(np.asarray(preds[3])[0, 0])
+
+    if plot_inverse:
+        true_event = inverse_global_asinh_scale(
+            x_scaled,
+            global_center,
+            global_scale,
+            output_gain
+        )
+        pred_event = inverse_global_asinh_scale(
+            y_pred_scaled,
+            global_center,
+            global_scale,
+            output_gain
+        )
+    else:
+        true_event = x_scaled
+        pred_event = y_pred_scaled
+
+    true_comp = true_event[:, :, ci]   # [S, T]
+    pred_comp = pred_event[:, :, ci]   # [S, T]
+
+    # Full reconstructed array:
+    # observed sensors stay true, masked sensors become predictions
+    reconstructed_comp = true_comp.copy()
+    reconstructed_comp[masked_indices, :] = pred_comp[masked_indices, :]
+
+    def _make_trace(data_1d, sta):
+        if sta not in site_dict:
+            raise ValueError(f"Station {sta} not found in site file {site_file}")
+
+        stla = site_dict[sta]["lat"]
+        stlo = site_dict[sta]["lon"]
+        stel = site_dict[sta]["elev_m"]
+
+        tr = Trace(data=np.asarray(data_1d, dtype=np.float32))
+        tr.stats.station = sta
+        tr.stats.channel = chan
+        tr.stats.network = network
+        tr.stats.location = location
+        tr.stats.delta = 1.0 / sampling_rate
+        tr.stats.starttime = starttime
+        tr.stats.sac = {
+            "stla": stla,
+            "stlo": stlo,
+            "stel": stel,
+        }
+        return tr
+
+    st_full = Stream()
+    st_masked = Stream()
+    st_reconstructed = Stream()
+
+    for si, sta in enumerate(station_order):
+        # Fully observed / true stream
+        st_full += _make_trace(true_comp[si], sta)
+
+        # Reduced stream only keeps observed sensors
+        if si in observed_indices:
+            st_masked += _make_trace(true_comp[si], sta)
+
+        # Reconstructed full stream
+        st_reconstructed += _make_trace(reconstructed_comp[si], sta)
+
+    info = {
+        "event_index": event_index,
+        "component": chan,
+        "starttime": starttime,
+        "observed_indices": observed_indices,
+        "observed_stations": observed_stations,
+        "masked_indices": masked_indices,
+        "masked_stations": masked_stations,
+        "x_model": x_model,
+        "d_model": d_model,
+        "observed_mask": observed_mask,
+        "true_component_array": true_comp,
+        "pred_component_array": pred_comp,
+        "reconstructed_component_array": reconstructed_comp,
+        "predicted_magnitude": pred_mag,
+        "site_dict": site_dict,
+    }
+
+    return st_full, st_masked, st_reconstructed, info
 
 def plot_array_geometry(st, figsize=(6,6), fname=None):
 
